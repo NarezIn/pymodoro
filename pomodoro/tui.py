@@ -25,28 +25,6 @@ def render_ith_sub(current_sub_num: int, total_sub_num: int) -> str:
         raise ValueError("Total_sub_num must be greater than zero when rendering ith sub-session!")
     return f"current sub-session: [{current_sub_num}/{total_sub_num}]"
 
-# def render_sub_progress(current_mins: int, total_mins, is_resting = False) -> str:
-#     """
-#     Display the progress of the current sub-session, either studying or resting.
-#     """
-#     if is_resting:
-#         progress_icon = emoji.emojize(":sleepy_face:")
-#         label = "resting"
-#     else:
-#         progress_icon = emoji.emojize(":tomato:")
-#         label = "studying"
-#     empty_icon = emoji.emojize(":white_medium_square: ") # the trailing space is on purpose
-#     length = 10
-#     # Raise ZeroDivisionError.
-#     if total_mins == 0:
-#         raise ZeroDivisionError("Total minutes cannot be zero when rendering sub-session progress!")
-#     filled_length = int(length * (current_mins / total_mins)) if total_mins > 0 else 0
-#     progress_bar = progress_icon * filled_length + empty_icon * (length - filled_length)
-#     specifics = f"{current_mins}min/{total_mins}min"
-#     output = f"current sub-session progress ({label}): {progress_bar} [{specifics}]"
-#     return output
-import emoji
-
 def render_sub_progress(current: int, total: int, is_resting: bool = False) -> str:
     """
     Render a sub-session progress bar with emojis.
@@ -94,7 +72,6 @@ def render_full(current_sub_num: int, total_sub_num: int,
     sys.stdout.write(full_output)
     sys.stdout.flush()
 
-#Lan's edits
 def show_timer_history(storage: Storage):
     """
     Print all timers in storage with their IDs and durations
@@ -112,5 +89,97 @@ def finish_session():
     """Call this when the timer hits 100% so the next print starts on a new line."""
     print()
     sys.stdout.flush()
+
+
+def render_from_state(state: dict) -> str:
+    """
+    Build a full terminal display string from a daemon state dict.
+
+    Args:
+        state (dict): the full state from session.json, with "session"
+            and "config" keys.
+
+    Returns:
+        str: a multi-line string with sub-session info, progress bar,
+             and time remaining.
+    """
+    session = state.get("session", state)
+    phase = session.get("phase")
+    if phase is None:
+        completed = session.get("completed_cycles", 0)
+        total = session.get("total_cycles", 0)
+        return f"Session complete! {completed}/{total} cycles finished.\n"
+
+    completed = session.get("completed_cycles", 0)
+    total_cycles = session.get("total_cycles", 4)
+    current_sub = min(completed + 1, total_cycles)
+    remaining = session.get("remaining_seconds", 0)
+    total_secs = session.get("total_seconds", 1)
+    is_resting = (phase == "break")
+    display_time = session.get("display_time", "00:00")
+
+    sub_line = render_ith_sub(current_sub, total_cycles)
+    elapsed = total_secs - remaining
+    progress_line = render_sub_progress(elapsed, total_secs, is_resting)
+    # Replace the "Xmin/Ymin" suffix with the display_time.
+    progress_line = progress_line.rsplit(" ", 1)[0] + f" {display_time}"
+
+    return f"{sub_line}\n{progress_line}"
+
+
+def live_display_loop(state_file) -> None:
+    """
+    Foreground loop for --show. Polls the state file every second,
+    renders a live progress bar with ANSI refresh, and handles Ctrl+C.
+
+    Args:
+        state_file: a pathlib.Path pointing to session.json.
+    """
+    import time
+    from pomodoro.ipc import read_session, write_command, clear_command
+
+    write_command("show_progress")
+    shown_notification = False
+    prev_line_count = 0
+
+    try:
+        while True:
+            state = read_session()
+            if state is None:
+                sys.stdout.write("\r\033[KWaiting for daemon...\r\n")
+                sys.stdout.flush()
+                time.sleep(1)
+                continue
+
+            display = render_from_state(state)
+
+            notification = state.get("notification")
+            if notification and not shown_notification:
+                display += f"\n  {notification['text']}"
+                shown_notification = True
+
+            display += "\n[Ctrl+C to return to quiet mode]"
+            line_count = display.count("\n") + 1
+
+            # Move up to the start of the previous render, clear below.
+            if prev_line_count > 0:
+                sys.stdout.write(f"\033[{prev_line_count - 1}F")
+            sys.stdout.write("\033[J")
+            sys.stdout.write(display + "\n")
+            sys.stdout.flush()
+            prev_line_count = line_count + 1  # +1 for the trailing newline
+
+            if state.get("session", {}).get("phase") is None:
+                sys.stdout.write("\033[JGood work!\r\n")
+                sys.stdout.flush()
+                break
+
+            time.sleep(1)
+    except KeyboardInterrupt:
+        sys.stdout.write("\033[JReturning to quiet mode...\r\n")
+        sys.stdout.flush()
+    finally:
+        clear_command()
+
 
 

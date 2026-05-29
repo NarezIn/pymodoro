@@ -43,22 +43,21 @@ def main():
     #6. Demo PomodoroSession and TUI rendering
     print("\nStarting a Pomodoro session (shortened for demo)...")
     print("\n====================================================\n")
-    session = PomodoroSession(work_duration=45, break_duration=5) 
-    session.total_cycles = 2
+    session = PomodoroSession(work_duration=45, break_duration=5, total_cycles=2)
     session.start()
 
-    while session.current_phase is not None: #session is not using storage.create_timer
-        session.tick(session.total_cycles)
+    while session.current_phase is not None:
+        session.tick()
         status = session.get_status()
 
         current_sub_num = min(session.completed_cycles + 1, session.total_cycles)
         total_sub_num = session.total_cycles
-        current_mins = status['remaining']
-        total_mins = status.get('total', current_mins)
+        current_mins = status['remaining_seconds']
+        total_mins = status.get('total_seconds', current_mins)
         is_resting = (status['phase'] == "break")
 
         render_full(current_sub_num, total_sub_num, current_mins, total_mins, is_resting)
-        time.sleep(1) # Set it to 1 or less for debugging.
+        time.sleep(1)
     finish_session()
     print("====================================================\n")
     print("** Pomodoro session completed! **\n")

@@ -236,7 +236,7 @@ def test_tick_in_break_phase_switches_to_work_if_remaining_reaches_zero(monkeypa
     assert session.completed_cycles == 1
 
 def test_tick_in_break_phase_switches_to_none_when_total_cycles_reached(monkeypatch):
-    session = PomodoroSession(25, 5)
+    session = PomodoroSession(25, 5, total_cycles=2)
     session.current_phase = "break"
     session.completed_cycles = 1
     session.break_timer.remaining = 1
@@ -246,14 +246,14 @@ def test_tick_in_break_phase_switches_to_none_when_total_cycles_reached(monkeypa
 
     monkeypatch.setattr(session.break_timer, "tick", fake_tick)
 
-    session.tick(total_cycles=2)
+    session.tick()
 
     assert session.completed_cycles == 2
     assert session.current_phase is None
     assert session.work_timer.status == "stopped"
 
 def test_tick_in_break_phase_switches_back_to_work_when_total_cycles_not_reached(monkeypatch):
-    session = PomodoroSession(25, 5)
+    session = PomodoroSession(25, 5, total_cycles=2)
     session.current_phase = "break"
     session.completed_cycles = 0
     session.break_timer.remaining = 1
@@ -263,7 +263,7 @@ def test_tick_in_break_phase_switches_back_to_work_when_total_cycles_not_reached
 
     monkeypatch.setattr(session.break_timer, "tick", fake_tick)
 
-    session.tick(total_cycles=2)
+    session.tick()
 
     assert session.completed_cycles == 1
     assert session.current_phase == "work"
@@ -296,33 +296,33 @@ def test_switch_phase_from_break_increments_cycles_and_goes_to_work():
     assert session.work_timer.status == "running"
 
 def test_switch_phase_from_break_sets_phase_none_when_total_cycles_reached():
-    session = PomodoroSession(25, 5)
+    session = PomodoroSession(25, 5, total_cycles=2)
     session.current_phase = "break"
     session.completed_cycles = 1
 
-    session.switch_phase(total_cycles=2)
+    session.switch_phase()
 
     assert session.completed_cycles == 2
     assert session.current_phase is None
     assert session.work_timer.status == "stopped"
 
 def test_switch_phase_from_break_goes_to_work_when_total_cycles_not_reached():
-    session = PomodoroSession(25, 5)
+    session = PomodoroSession(25, 5, total_cycles=3)
     session.current_phase = "break"
     session.completed_cycles = 1
 
-    session.switch_phase(total_cycles=3)
+    session.switch_phase()
 
     assert session.completed_cycles == 2
     assert session.current_phase == "work"
     assert session.work_timer.status == "running"
 
 def test_switch_phase_from_break_with_total_cycles_zero_ends_immediately():
-    session = PomodoroSession(25, 5)
+    session = PomodoroSession(25, 5, total_cycles=0)
     session.current_phase = "break"
     session.completed_cycles = 0
 
-    session.switch_phase(total_cycles=0)
+    session.switch_phase()
 
     assert session.completed_cycles == 1
     assert session.current_phase is None
@@ -337,9 +337,11 @@ def test_get_status_in_work_phase_returns_correct_dictionary():
 
     assert isinstance(status, dict)
     assert status["phase"] == "work"
-    assert status["remaining"] == 17
+    assert status["remaining_seconds"] == 17
     assert status["status"] == "running"
-    assert status["total"] == 25
+    assert status["total_seconds"] == 25
+    assert status["completed_cycles"] == 0
+    assert status["total_cycles"] == 4
 
 def test_get_status_in_break_phase_returns_correct_dictionary():
     session = PomodoroSession(25, 5)
@@ -351,23 +353,25 @@ def test_get_status_in_break_phase_returns_correct_dictionary():
 
     assert isinstance(status, dict)
     assert status["phase"] == "break"
-    assert status["remaining"] == 3
+    assert status["remaining_seconds"] == 3
     assert status["status"] == "paused"
-    assert status["total"] == 5
+    assert status["total_seconds"] == 5
+    assert status["completed_cycles"] == 0
+    assert status["total_cycles"] == 4
 
-def test_get_status_when_phase_none_returns_break_status_due_to_current_code_behavior():
+def test_get_status_when_phase_none_returns_finished_state():
     session = PomodoroSession(25, 5)
     session.current_phase = None
-    session.break_timer.remaining = 2
-    session.break_timer.status = "running"
+    session.completed_cycles = 4
 
     status = session.get_status()
 
     assert isinstance(status, dict)
-    assert status["phase"] == "break"
-    assert status["remaining"] == 2
-    assert status["status"] == "running"
-    assert status["total"] == 5
+    assert status["phase"] is None
+    assert status["remaining_seconds"] == 0
+    assert status["status"] == "finished"
+    assert status["completed_cycles"] == 4
+    assert status["total_cycles"] == 4
 
 def test_full_cycle_work_then_break_increments_completed_cycles_once(monkeypatch):
     session = PomodoroSession(25, 5)
@@ -393,7 +397,7 @@ def test_full_cycle_work_then_break_increments_completed_cycles_once(monkeypatch
     assert session.work_timer.status == "running"
 
 def test_multiple_full_cycles_with_total_cycles_stops_session(monkeypatch):
-    session = PomodoroSession(25, 5)
+    session = PomodoroSession(25, 5, total_cycles=2)
 
     def fake_work_done():
         session.work_timer.remaining = 0
@@ -402,25 +406,25 @@ def test_multiple_full_cycles_with_total_cycles_stops_session(monkeypatch):
         session.break_timer.remaining = 0
 
     monkeypatch.setattr(session.work_timer, "tick", fake_work_done)
-    session.tick(total_cycles=2)
+    session.tick()
 
     assert session.current_phase == "break"
     assert session.completed_cycles == 0
 
     monkeypatch.setattr(session.break_timer, "tick", fake_break_done)
-    session.tick(total_cycles=2)
+    session.tick()
 
     assert session.current_phase == "work"
     assert session.completed_cycles == 1
 
     monkeypatch.setattr(session.work_timer, "tick", fake_work_done)
-    session.tick(total_cycles=2)
+    session.tick()
 
     assert session.current_phase == "break"
     assert session.completed_cycles == 1
 
     monkeypatch.setattr(session.break_timer, "tick", fake_break_done)
-    session.tick(total_cycles=2)
+    session.tick()
 
     assert session.completed_cycles == 2
     assert session.current_phase is None
