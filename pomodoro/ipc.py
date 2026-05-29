@@ -7,6 +7,7 @@ session.json and write commands to command.json.
 """
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -115,28 +116,28 @@ def is_daemon_running() -> bool:
     except (FileNotFoundError, ValueError):
         return False
 
-    # Windows-specific process check: use WaitForSingleObject with timeout 0.
-    try:
-        import ctypes
-        import ctypes.wintypes
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import ctypes.wintypes
 
-        SYNCHRONIZE = 0x00100000
-        PROCESS_QUERY_INFORMATION = 0x0400
-        STILL_ACTIVE = 259
+            SYNCHRONIZE = 0x00100000
+            PROCESS_QUERY_INFORMATION = 0x0400
+            STILL_ACTIVE = 259
 
-        handle = ctypes.windll.kernel32.OpenProcess(
-            SYNCHRONIZE | PROCESS_QUERY_INFORMATION, False, pid
-        )
-        if handle == 0:
+            handle = ctypes.windll.kernel32.OpenProcess(
+                SYNCHRONIZE | PROCESS_QUERY_INFORMATION, False, pid
+            )
+            if handle == 0:
+                return False
+
+            exit_code = ctypes.wintypes.DWORD()
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return exit_code.value == STILL_ACTIVE
+        except OSError:
             return False
-
-        exit_code = ctypes.wintypes.DWORD()
-        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
-        ctypes.windll.kernel32.CloseHandle(handle)
-        return exit_code.value == STILL_ACTIVE
-    except OSError:
-        # Fallback: assume the PID is valid if we can't check.
-        # This handles non-Windows platforms gracefully.
+    else:
         try:
             os.kill(pid, 0)
             return True
